@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.is_host(uuid) FROM PUBLIC, anon, authenticated;
