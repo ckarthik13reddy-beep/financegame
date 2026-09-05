@@ -29,6 +29,7 @@ import {
   ASSET_COLORS,
   ASSET_KEYS,
   ASSET_LABELS,
+  DEFAULT_CREDENTIALS,
   MAX_MOVE_PER_ASSET,
   START_CAPITAL,
   TOTAL_ROUNDS,
@@ -69,7 +70,7 @@ const emptyAmounts = () => Object.fromEntries(ASSET_KEYS.map((key) => [key, 0]))
 
 export function LoginScreen() {
   const [username, setUsername] = useState("team1");
-  const [password, setPassword] = useState("trade2026");
+  const [password, setPassword] = useState(DEFAULT_CREDENTIALS[0].password);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -175,8 +176,8 @@ export function LoginScreen() {
           <div className="mt-8 border-t border-border pt-5">
             <p className="label-caps">Demo credentials</p>
             <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-              <span className="num">team1–team4 / trade2026</span>
-              <span className="num">host / host2026</span>
+              <span className="num">team1–team4 / T7!qL9#vR2@pX4</span>
+              <span className="num">host / H4!mQ8#zR6@pL3</span>
             </div>
           </div>
         </form>

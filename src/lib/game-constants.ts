@@ -36,11 +36,11 @@ export const ROUND_STATUS_LABEL: Record<string, string> = {
 };
 
 export const DEFAULT_CREDENTIALS = [
-  { username: "team1", password: "trade2026", label: "Team 1" },
-  { username: "team2", password: "trade2026", label: "Team 2" },
-  { username: "team3", password: "trade2026", label: "Team 3" },
-  { username: "team4", password: "trade2026", label: "Team 4" },
-  { username: "host", password: "host2026", label: "Host" },
+  { username: "team1", password: "T7!qL9#vR2@pX4", label: "Team 1" },
+  { username: "team2", password: "T7!qL9#vR2@pX4", label: "Team 2" },
+  { username: "team3", password: "T7!qL9#vR2@pX4", label: "Team 3" },
+  { username: "team4", password: "T7!qL9#vR2@pX4", label: "Team 4" },
+  { username: "host", password: "H4!mQ8#zR6@pL3", label: "Host" },
 ];
 
 const money = new Intl.NumberFormat("en-US", {
