@@ -101,7 +101,7 @@ export function LoginScreen() {
     if (error) {
       setMessage(
         error.message.toLowerCase().includes("email not confirmed")
-          ? "This demo account was created before email confirmation was disabled. In Supabase Authentication > Users, confirm this user manually or delete it, then retry the login."
+          ? "This account exists but is still unconfirmed. In Supabase SQL Editor, run UPDATE auth.users SET email_confirmed_at = now() WHERE email IN ('team1@tradingfloor.app', 'team2@tradingfloor.app', 'team3@tradingfloor.app', 'team4@tradingfloor.app', 'host@tradingfloor.app'); Then retry login."
           : error.message,
       );
       return;

@@ -10,6 +10,17 @@ DECLARE
   account_role text;
   account_team_number int;
   allocation jsonb;
+  UPDATE auth.users
+SET
+  email_confirmed_at = now(),
+  confirmed_at = now()
+WHERE email IN (
+  'team1@tradingfloor.app',
+  'team2@tradingfloor.app',
+  'team3@tradingfloor.app',
+  'team4@tradingfloor.app',
+  'host@tradingfloor.app'
+);
 BEGIN
   IF account_email NOT IN (
     'team1@tradingfloor.app',
