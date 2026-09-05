@@ -90,17 +90,25 @@ export function LoginScreen() {
       password,
     });
 
+    let hasSession = !error;
     if (error?.message.toLowerCase().includes("invalid login credentials")) {
       const created = await supabase.auth.signUp({ email, password });
       error = created.error;
+      hasSession = Boolean(created.data.session);
     }
 
     setBusy(false);
     if (error) {
       setMessage(
         error.message.toLowerCase().includes("email not confirmed")
-          ? "Email confirmation is enabled in Supabase. Disable it for this classroom project, then try again."
+          ? "This classroom app requires email confirmation to be disabled in Supabase Authentication settings."
           : error.message,
+      );
+      return;
+    }
+    if (!hasSession) {
+      setMessage(
+        "The account was created, but Supabase requires email confirmation. In Supabase, open Authentication > Providers > Email, turn off Confirm email, then try again.",
       );
       return;
     }
