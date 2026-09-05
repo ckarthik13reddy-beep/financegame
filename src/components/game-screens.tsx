@@ -101,7 +101,7 @@ export function LoginScreen() {
     if (error) {
       setMessage(
         error.message.toLowerCase().includes("email not confirmed")
-          ? "This classroom app requires email confirmation to be disabled in Supabase Authentication settings."
+          ? "This demo account was created before email confirmation was disabled. In Supabase Authentication > Users, confirm this user manually or delete it, then retry the login."
           : error.message,
       );
       return;
