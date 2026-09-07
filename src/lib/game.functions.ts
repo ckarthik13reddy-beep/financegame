@@ -6,6 +6,7 @@ import {
   DEFAULT_CREDENTIALS,
   EMAIL_DOMAIN,
   MAX_MOVE_PER_ASSET,
+  MIN_TRADE_LOT,
   START_CAPITAL,
   TOTAL_ROUNDS,
 } from "./game-constants";
@@ -15,15 +16,6 @@ type Amounts = Record<string, number>;
 async function admin() {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   return supabaseAdmin;
-}
-
-function equalSplit(total: number): Amounts {
-  const each = Math.round((total / ASSET_KEYS.length) * 100) / 100;
-  const out: Amounts = {};
-  ASSET_KEYS.forEach((k, i) => {
-    out[k] = i === ASSET_KEYS.length - 1 ? Math.round((total - each * (ASSET_KEYS.length - 1)) * 100) / 100 : each;
-  });
-  return out;
 }
 
 /** Creates the 4 team logins + host login and their starting positions. Idempotent. */
@@ -60,14 +52,22 @@ export const seedGame = createServerFn({ method: "POST" }).handler(async () => {
     });
 
     if (!isHost && teamNumber) {
-      await db.from("teams").upsert({ id: userId, team_number: teamNumber, name: cred.label });
-      const split = equalSplit(START_CAPITAL);
+      await db.from("teams").upsert({
+        id: userId,
+        team_number: teamNumber,
+        name: cred.label,
+        cash_balance: START_CAPITAL,
+      });
       await db
         .from("allocations")
-        .upsert(ASSET_KEYS.map((k) => ({ team_id: userId!, asset_key: k, amount: split[k]! })));
-      await db
-        .from("round_snapshots")
-        .upsert({ team_id: userId, round: 0, total_value: START_CAPITAL, allocation: split });
+        .upsert(ASSET_KEYS.map((k) => ({ team_id: userId!, asset_key: k, amount: 0 })));
+      await db.from("round_snapshots").upsert({
+        team_id: userId,
+        round: 0,
+        total_value: START_CAPITAL,
+        cash_balance: START_CAPITAL,
+        allocation: {},
+      });
     }
   }
 
@@ -108,7 +108,8 @@ export const submitAllocation = createServerFn({ method: "POST" })
     if (!state) throw new Error("Game state missing");
     const round = state.current_round;
 
-    if (state.status !== "open") throw new Error("The round is not open for trading");
+    if (state.status !== "open" && state.status !== "setup")
+      throw new Error("The round is not open for trading");
     if (round >= TOTAL_ROUNDS) throw new Error("Positions are frozen for the surprise round");
     if (state.timer_ends_at && new Date(state.timer_ends_at).getTime() < Date.now())
       throw new Error("Time is up for this round");
@@ -129,7 +130,7 @@ export const submitAllocation = createServerFn({ method: "POST" })
       .maybeSingle();
     if (!base) throw new Error("No opening position found for this round");
 
-    const baseline = base.allocation as Amounts;
+    const baseline = (base.allocation ?? {}) as Amounts;
     const targetTotal = Number(base.total_value);
 
     let sum = 0;
@@ -138,14 +139,15 @@ export const submitAllocation = createServerFn({ method: "POST" })
       if (!Number.isFinite(v) || v < 0) throw new Error(`Invalid amount for ${key}`);
       sum += v;
     }
-    if (Math.abs(sum - targetTotal) > 1)
-      throw new Error("Total allocation must equal your portfolio value");
+    if (sum > targetTotal + 1) throw new Error("You cannot spend more than your wallet balance");
 
     let bondsChanged = false;
     for (const key of ASSET_KEYS) {
       const next = Number(data.amounts[key] ?? 0);
       const prev = Number(baseline[key] ?? 0);
       const delta = next - prev;
+      if (Math.abs(delta) > 0.5 && Math.abs(delta) < MIN_TRADE_LOT)
+        throw new Error(`${key} trades must use lots of at least $5M`);
       if (Math.abs(delta) > MAX_MOVE_PER_ASSET + 1)
         throw new Error(`Cannot move more than $10M in or out of ${key} in one round`);
       if (key === "bonds" && Math.abs(delta) > 1) bondsChanged = true;
@@ -162,6 +164,10 @@ export const submitAllocation = createServerFn({ method: "POST" })
       updated_at: new Date().toISOString(),
     }));
     await db.from("allocations").upsert(rows);
+    await db
+      .from("teams")
+      .update({ cash_balance: Math.round((targetTotal - sum) * 100) / 100 })
+      .eq("id", teamId);
 
     const logs = ASSET_KEYS.map((k) => ({
       team_id: teamId,
@@ -190,7 +196,10 @@ export const hostSetStatus = createServerFn({ method: "POST" })
   .inputValidator((input: { status: "setup" | "open" | "frozen" | "complete" }) => input)
   .handler(async ({ data, context }) => {
     const db = await assertHost(context.userId);
-    const patch: Record<string, unknown> = { status: data.status, updated_at: new Date().toISOString() };
+    const patch: Record<string, unknown> = {
+      status: data.status,
+      updated_at: new Date().toISOString(),
+    };
     if (data.status !== "open") patch["timer_ends_at"] = null;
     await db.from("game_state").update(patch).eq("id", 1);
     return { ok: true };
@@ -216,7 +225,9 @@ export const hostStartTimer = createServerFn({ method: "POST" })
 
 export const hostPostNews = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { round: number; headline: string; body: string; imageUrl?: string }) => input)
+  .inputValidator(
+    (input: { round: number; headline: string; body: string; imageUrl?: string }) => input,
+  )
   .handler(async ({ data, context }) => {
     const db = await assertHost(context.userId);
     await db.from("news").upsert({
@@ -251,13 +262,17 @@ export const hostSetBenchmarkWeights = createServerFn({ method: "POST" })
 
     for (const [key, w] of Object.entries(data.weights)) {
       if (!ASSET_KEYS.includes(key as never)) continue;
-      await db.from("assets").update({ benchmark_weight: Number(w) }).eq("key", key);
+      await db
+        .from("assets")
+        .update({ benchmark_weight: Number(w) })
+        .eq("key", key);
     }
 
     const { data: settled } = await db.from("benchmark_snapshots").select("round").gt("round", 0);
     if (!settled || settled.length === 0) {
       const alloc: Amounts = {};
-      for (const [key, w] of Object.entries(data.weights)) alloc[key] = (START_CAPITAL * Number(w)) / 100;
+      for (const [key, w] of Object.entries(data.weights))
+        alloc[key] = (START_CAPITAL * Number(w)) / 100;
       await db
         .from("benchmark_snapshots")
         .upsert({ round: 0, total_value: START_CAPITAL, allocation: alloc });
@@ -270,7 +285,10 @@ export const hostSetBasePrice = createServerFn({ method: "POST" })
   .inputValidator((input: { key: string; basePrice: number }) => input)
   .handler(async ({ data, context }) => {
     const db = await assertHost(context.userId);
-    await db.from("assets").update({ base_price: Number(data.basePrice) }).eq("key", data.key);
+    await db
+      .from("assets")
+      .update({ base_price: Number(data.basePrice) })
+      .eq("key", data.key);
     return { ok: true };
   });
 
@@ -295,18 +313,26 @@ async function settleRound(round: number) {
     return { next, total: Math.round(total * 100) / 100 };
   };
 
-  const { data: teams } = await db.from("teams").select("id");
+  const { data: teams } = await db.from("teams").select("id, cash_balance");
   for (const team of teams ?? []) {
-    const { data: live } = await db.from("allocations").select("asset_key, amount").eq("team_id", team.id);
+    const { data: live } = await db
+      .from("allocations")
+      .select("asset_key, amount")
+      .eq("team_id", team.id);
     const current: Amounts = {};
     for (const row of live ?? []) current[row.asset_key] = Number(row.amount);
     const { next, total } = revalue(current);
+    const cash = Number(team.cash_balance ?? 0);
     await db
       .from("allocations")
       .upsert(ASSET_KEYS.map((k) => ({ team_id: team.id, asset_key: k, amount: next[k]! })));
-    await db
-      .from("round_snapshots")
-      .upsert({ team_id: team.id, round, total_value: total, allocation: next });
+    await db.from("round_snapshots").upsert({
+      team_id: team.id,
+      round,
+      total_value: total + cash,
+      cash_balance: cash,
+      allocation: next,
+    });
   }
 
   const { data: prevBench } = await db
@@ -316,9 +342,7 @@ async function settleRound(round: number) {
     .maybeSingle();
   if (prevBench) {
     const { next, total } = revalue(prevBench.allocation as Amounts);
-    await db
-      .from("benchmark_snapshots")
-      .upsert({ round, total_value: total, allocation: next });
+    await db.from("benchmark_snapshots").upsert({ round, total_value: total, allocation: next });
   }
   return true;
 }
@@ -400,16 +424,22 @@ export const hostResetGame = createServerFn({ method: "POST" })
     await db.from("news").delete().gte("round", 0);
     await db.from("price_moves").update({ pct: 0 }).gte("round", 0);
 
-    const split = equalSplit(START_CAPITAL);
     const { data: teams } = await db.from("teams").select("id");
     for (const team of teams ?? []) {
       await db
         .from("allocations")
-        .upsert(ASSET_KEYS.map((k) => ({ team_id: team.id, asset_key: k, amount: split[k]! })));
+        .upsert(ASSET_KEYS.map((k) => ({ team_id: team.id, asset_key: k, amount: 0 })));
+      await db.from("round_snapshots").upsert({
+        team_id: team.id,
+        round: 0,
+        total_value: START_CAPITAL,
+        cash_balance: START_CAPITAL,
+        allocation: {},
+      });
       await db
-        .from("round_snapshots")
-        .upsert({ team_id: team.id, round: 0, total_value: START_CAPITAL, allocation: split });
-      await db.from("teams").update({ bonds_locked: false, bonds_change_round: null }).eq("id", team.id);
+        .from("teams")
+        .update({ bonds_locked: false, bonds_change_round: null, cash_balance: START_CAPITAL })
+        .eq("id", team.id);
     }
     await db
       .from("game_state")

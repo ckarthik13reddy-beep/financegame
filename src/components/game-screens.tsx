@@ -31,6 +31,7 @@ import {
   ASSET_LABELS,
   DEFAULT_CREDENTIALS,
   MAX_MOVE_PER_ASSET,
+  MIN_TRADE_LOT,
   START_CAPITAL,
   TOTAL_ROUNDS,
   fmtMoney,
@@ -185,7 +186,10 @@ export function LoginScreen() {
             <p className="label-caps">Demo credentials</p>
             <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
               {DEFAULT_CREDENTIALS.map((credential) => (
-                <div key={credential.username} className="rounded border border-border bg-background/60 p-2">
+                <div
+                  key={credential.username}
+                  className="rounded border border-border bg-background/60 p-2"
+                >
                   <div className="font-medium text-foreground">{credential.label}</div>
                   <div className="mt-1 font-mono text-[10px] break-all">
                     {credential.username} / {credential.password}
@@ -254,6 +258,7 @@ export function TeamDesk({ profile }: { profile: Profile }) {
   const { data: benchmark } = useBenchmark();
   const benchmarkSnapshot = benchmark?.filter((item) => item.round <= currentRound).at(-1);
   const latestValue =
+    numberValue(team?.cash_balance) +
     numberValue(live[ASSET_KEYS[0]]) +
     ASSET_KEYS.slice(1).reduce((sum, key) => sum + numberValue(live[key]), 0);
   const previousValue = numberValue(base?.total_value ?? START_CAPITAL);
@@ -273,8 +278,31 @@ export function TeamDesk({ profile }: { profile: Profile }) {
   );
   const isSurprise = currentRound >= TOTAL_ROUNDS;
   const timerExpired = seconds !== null && seconds <= 0;
-  const isOpen = state.data?.status === "open" && !submitted && !isSurprise && !timerExpired;
+  const isOpen =
+    (state.data?.status === "open" || state.data?.status === "setup") &&
+    !submitted &&
+    !isSurprise &&
+    !timerExpired;
   const [confirmBonds, setConfirmBonds] = useState(false);
+
+  function trade(key: string, direction: 1 | -1) {
+    setDraft((current) => {
+      const next = Math.max(0, numberValue(current[key]) + direction * MIN_TRADE_LOT);
+      const available =
+        numberValue(base?.total_value ?? START_CAPITAL) -
+        ASSET_KEYS.reduce(
+          (sum, assetKey) => sum + (assetKey === key ? 0 : numberValue(current[assetKey])),
+          0,
+        );
+      return {
+        ...current,
+        [key]: Math.min(
+          next,
+          numberValue(current[key]) + Math.max(0, available - numberValue(current[key])),
+        ),
+      };
+    });
+  }
 
   async function submit() {
     if (!team) return;
@@ -325,10 +353,16 @@ export function TeamDesk({ profile }: { profile: Profile }) {
                 title="Allocation desk"
                 action={
                   <span className="num text-xs text-muted-foreground">
-                    Target {fmtMoney(base?.total_value ?? START_CAPITAL)}
+                    Wallet {fmtMoney(numberValue(base?.total_value ?? START_CAPITAL) - total)}
                   </span>
                 }
               >
+                {state.data?.status === "setup" && (
+                  <p className="mb-4 border border-primary/30 bg-primary/10 p-3 text-sm text-primary">
+                    Setup phase: use Buy and Sell in $5M lots to set your opening allocation before
+                    the round starts.
+                  </p>
+                )}
                 <div className="flex flex-col items-center gap-7 md:flex-row">
                   <AllocationDonut amounts={draft} total={total} />
                   <div className="grid w-full gap-3 sm:grid-cols-2">
@@ -343,11 +377,21 @@ export function TeamDesk({ profile }: { profile: Profile }) {
                           </span>
                           <div className="mt-3 flex items-center gap-2">
                             <span className="num text-muted-foreground">$</span>
+                            <button
+                              type="button"
+                              disabled={
+                                !isOpen || lockedBond || numberValue(draft[key]) < MIN_TRADE_LOT
+                              }
+                              onClick={() => trade(key, -1)}
+                              className="rounded border border-loss/40 px-2 py-1 text-xs text-loss disabled:opacity-30"
+                            >
+                              Sell
+                            </button>
                             <input
                               disabled={!isOpen || lockedBond}
                               type="number"
                               min="0"
-                              step="1000"
+                              step={MIN_TRADE_LOT}
                               value={Math.round(numberValue(draft[key]))}
                               onChange={(event) =>
                                 setDraft((current) => ({
@@ -357,6 +401,14 @@ export function TeamDesk({ profile }: { profile: Profile }) {
                               }
                               className="num w-full bg-transparent text-right text-sm outline-none disabled:opacity-50"
                             />
+                            <button
+                              type="button"
+                              disabled={!isOpen || lockedBond}
+                              onClick={() => trade(key, 1)}
+                              className="rounded border border-gain/40 px-2 py-1 text-xs text-gain disabled:opacity-30"
+                            >
+                              Buy
+                            </button>
                           </div>
                           <div className="mt-2 flex justify-between text-[10px] text-muted-foreground">
                             <span>{fmtPct(total ? numberValue(draft[key]) / total : 0)}</span>
@@ -383,7 +435,7 @@ export function TeamDesk({ profile }: { profile: Profile }) {
                 </div>
                 <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
                   <div>
-                    <span className="label-caps">Unallocated / over-allocated</span>
+                    <span className="label-caps">Cash remaining / overdrawn</span>
                     <p
                       className={`num mt-1 text-lg ${Math.abs(total - numberValue(base?.total_value ?? START_CAPITAL)) <= 1 ? "text-gain" : "text-loss"}`}
                     >
@@ -473,6 +525,12 @@ export function TeamDesk({ profile }: { profile: Profile }) {
                 <div>
                   <p className="label-caps">Portfolio</p>
                   <p className="num mt-2 text-2xl font-semibold">{fmtMoneyCompact(latestValue)}</p>
+                </div>
+                <div>
+                  <p className="label-caps">Wallet cash</p>
+                  <p className="num mt-2 text-2xl font-semibold text-primary">
+                    {fmtMoneyCompact(numberValue(team?.cash_balance))}
+                  </p>
                 </div>
                 <div>
                   <p className="label-caps">Vs. market</p>

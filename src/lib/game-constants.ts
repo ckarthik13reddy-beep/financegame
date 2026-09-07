@@ -1,5 +1,6 @@
 export const START_CAPITAL = 100_000_000;
 export const MAX_MOVE_PER_ASSET = 10_000_000;
+export const MIN_TRADE_LOT = 5_000_000;
 export const TOTAL_ROUNDS = 4;
 export const EMAIL_DOMAIN = "tradingfloor.app";
 
