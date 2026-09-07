@@ -184,8 +184,14 @@ export function LoginScreen() {
           <div className="mt-8 border-t border-border pt-5">
             <p className="label-caps">Demo credentials</p>
             <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-              <span className="num">team1–team4 / T7!qL9#vR2@pX4</span>
-              <span className="num">host / H4!mQ8#zR6@pL3</span>
+              {DEFAULT_CREDENTIALS.map((credential) => (
+                <div key={credential.username} className="rounded border border-border bg-background/60 p-2">
+                  <div className="font-medium text-foreground">{credential.label}</div>
+                  <div className="mt-1 font-mono text-[10px] break-all">
+                    {credential.username} / {credential.password}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </form>

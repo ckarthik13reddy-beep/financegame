@@ -5,23 +5,15 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  account_email text := lower(auth.jwt() ->> 'email');
-  account_username text := split_part(account_email, '@', 1);
+  account_email text;
+  account_username text;
   account_role text;
   account_team_number int;
   allocation jsonb;
-  UPDATE auth.users
-SET
-  email_confirmed_at = now(),
-  confirmed_at = now()
-WHERE email IN (
-  'team1@tradingfloor.app',
-  'team2@tradingfloor.app',
-  'team3@tradingfloor.app',
-  'team4@tradingfloor.app',
-  'host@tradingfloor.app'
-);
 BEGIN
+  account_email := lower(auth.jwt() ->> 'email');
+  account_username := split_part(account_email, '@', 1);
+
   IF account_email NOT IN (
     'team1@tradingfloor.app',
     'team2@tradingfloor.app',
@@ -31,6 +23,11 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'Only the fixed classroom accounts may be bootstrapped';
   END IF;
+
+  UPDATE auth.users
+  SET email_confirmed_at = now(),
+      confirmed_at = now()
+  WHERE email = account_email;
 
   account_role := CASE WHEN account_username = 'host' THEN 'host' ELSE 'team' END;
   account_team_number := CASE WHEN account_role = 'team' THEN right(account_username, 1)::int ELSE NULL END;
