@@ -293,6 +293,7 @@ export type Database = {
         Row: {
           bonds_change_round: number | null;
           bonds_locked: boolean;
+          bonds_sell_used: boolean;
           cash_balance: number;
           created_at: string;
           id: string;
@@ -302,6 +303,7 @@ export type Database = {
         Insert: {
           bonds_change_round?: number | null;
           bonds_locked?: boolean;
+          bonds_sell_used?: boolean;
           cash_balance?: number;
           created_at?: string;
           id: string;
@@ -311,6 +313,7 @@ export type Database = {
         Update: {
           bonds_change_round?: number | null;
           bonds_locked?: boolean;
+          bonds_sell_used?: boolean;
           cash_balance?: number;
           created_at?: string;
           id?: string;

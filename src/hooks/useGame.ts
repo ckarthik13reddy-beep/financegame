@@ -26,6 +26,7 @@ export type Team = {
   team_number: number;
   name: string;
   bonds_locked: boolean;
+  bonds_sell_used: boolean;
   bonds_change_round: number | null;
 };
 
@@ -126,7 +127,10 @@ export function useNews() {
   return useQuery({
     queryKey: ["news"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("news").select("*").order("round", { ascending: false });
+      const { data, error } = await supabase
+        .from("news")
+        .select("*")
+        .order("round", { ascending: false });
       if (error) throw error;
       return data ?? [];
     },
@@ -285,6 +289,12 @@ export function usePerformance() {
     const bench = (benchmark.data ?? []).map((b) => ({ round: b.round, value: b.total_value }));
     const settledRounds = bench.filter((b) => b.round > 0).map((b) => b.round);
     const latestBench = bench.length ? bench[bench.length - 1]!.value : START_CAPITAL;
-    return { byTeam, bench, settledRounds, latestBench, loading: snapshots.isLoading || benchmark.isLoading };
+    return {
+      byTeam,
+      bench,
+      settledRounds,
+      latestBench,
+      loading: snapshots.isLoading || benchmark.isLoading,
+    };
   }, [snapshots.data, benchmark.data, snapshots.isLoading, benchmark.isLoading]);
 }

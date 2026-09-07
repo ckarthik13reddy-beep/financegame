@@ -8,6 +8,15 @@ export type AssetKey = "gold" | "bonds" | "energy" | "crypto" | "emerging" | "te
 
 export const ASSET_KEYS: AssetKey[] = ["gold", "bonds", "energy", "crypto", "emerging", "tech"];
 
+export const DEFAULT_ALLOCATION: Record<AssetKey, number> = {
+  gold: 30_000_000,
+  bonds: 10_000_000,
+  energy: 10_000_000,
+  crypto: 10_000_000,
+  emerging: 20_000_000,
+  tech: 20_000_000,
+};
+
 export const ASSET_LABELS: Record<AssetKey, string> = {
   gold: "Gold",
   bonds: "Bonds",

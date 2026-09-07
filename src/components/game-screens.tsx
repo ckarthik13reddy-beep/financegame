@@ -267,10 +267,7 @@ export function TeamDesk({ profile }: { profile: Profile }) {
   const marketReturn =
     ((benchmarkSnapshot?.total_value ?? START_CAPITAL) - START_CAPITAL) / START_CAPITAL;
   const vsMarket = portfolioReturn - marketReturn;
-  const bondsLocked = Boolean(team?.bonds_locked);
-  const bondsChanged =
-    currentRound > 1 &&
-    Math.abs(numberValue(draft.bonds) - numberValue(base?.allocation.bonds)) > 1;
+  const bondsSellUsed = Boolean(team?.bonds_sell_used);
   const capExceeded = ASSET_KEYS.some(
     (key) =>
       Math.abs(numberValue(draft[key]) - numberValue(base?.allocation[key])) >
@@ -283,8 +280,6 @@ export function TeamDesk({ profile }: { profile: Profile }) {
     !submitted &&
     !isSurprise &&
     !timerExpired;
-  const [confirmBonds, setConfirmBonds] = useState(false);
-
   function trade(key: string, direction: 1 | -1) {
     setDraft((current) => {
       const next = Math.max(0, numberValue(current[key]) + direction * MIN_TRADE_LOT);
@@ -306,10 +301,6 @@ export function TeamDesk({ profile }: { profile: Profile }) {
 
   async function submit() {
     if (!team) return;
-    if (bondsChanged && !bondsLocked && !confirmBonds) {
-      setConfirmBonds(true);
-      return;
-    }
     setBusy(true);
     setMessage("");
     try {
@@ -363,24 +354,35 @@ export function TeamDesk({ profile }: { profile: Profile }) {
                     the round starts.
                   </p>
                 )}
+                <p className="mb-4 text-xs text-muted-foreground">
+                  You may move up to $10M in or out of each market per round. Multiple markets can
+                  be adjusted in the same round.
+                </p>
                 <div className="flex flex-col items-center gap-7 md:flex-row">
                   <AllocationDonut amounts={draft} total={total} />
                   <div className="grid w-full gap-3 sm:grid-cols-2">
                     {ASSET_KEYS.map((key) => {
-                      const lockedBond = key === "bonds" && bondsLocked;
+                      const bonds = key === "bonds";
+                      const canSell = !bonds || !bondsSellUsed;
                       return (
                         <label key={key} className="border border-border/70 bg-background/30 p-3">
                           <span className="flex items-center gap-2 text-xs font-medium">
                             <AssetDot assetKey={key} />
                             {ASSET_LABELS[key]}
-                            {lockedBond && <span className="ml-auto text-warn">🔒 Locked</span>}
+                            {bonds && (
+                              <span
+                                className={`ml-auto ${bondsSellUsed ? "text-warn" : "text-muted-foreground"}`}
+                              >
+                                {bondsSellUsed ? "Sell used" : "1 sell available"}
+                              </span>
+                            )}
                           </span>
                           <div className="mt-3 flex items-center gap-2">
                             <span className="num text-muted-foreground">$</span>
                             <button
                               type="button"
                               disabled={
-                                !isOpen || lockedBond || numberValue(draft[key]) < MIN_TRADE_LOT
+                                !isOpen || !canSell || numberValue(draft[key]) < MIN_TRADE_LOT
                               }
                               onClick={() => trade(key, -1)}
                               className="rounded border border-loss/40 px-2 py-1 text-xs text-loss disabled:opacity-30"
@@ -388,22 +390,17 @@ export function TeamDesk({ profile }: { profile: Profile }) {
                               Sell
                             </button>
                             <input
-                              disabled={!isOpen || lockedBond}
+                              disabled={!isOpen}
                               type="number"
                               min="0"
                               step={MIN_TRADE_LOT}
                               value={Math.round(numberValue(draft[key]))}
-                              onChange={(event) =>
-                                setDraft((current) => ({
-                                  ...current,
-                                  [key]: Number(event.target.value),
-                                }))
-                              }
+                              readOnly
                               className="num w-full bg-transparent text-right text-sm outline-none disabled:opacity-50"
                             />
                             <button
                               type="button"
-                              disabled={!isOpen || lockedBond}
+                              disabled={!isOpen}
                               onClick={() => trade(key, 1)}
                               className="rounded border border-gain/40 px-2 py-1 text-xs text-gain disabled:opacity-30"
                             >
@@ -466,33 +463,6 @@ export function TeamDesk({ profile }: { profile: Profile }) {
                   <p className="mt-4 border border-primary/30 bg-primary/10 p-3 text-sm text-primary">
                     {message}
                   </p>
-                )}
-                {confirmBonds && (
-                  <div className="mt-4 border border-warn/50 bg-warn/10 p-4">
-                    <p className="text-sm font-semibold text-warn">
-                      This is your only Bonds adjustment. Confirm?
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      After submitting, Bonds will be read-only for the rest of the game.
-                    </p>
-                    <div className="mt-3 flex gap-2">
-                      <button
-                        onClick={() => setConfirmBonds(false)}
-                        className="rounded-md border border-border px-3 py-2 text-xs"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={() => {
-                          setConfirmBonds(false);
-                          void submit();
-                        }}
-                        className="rounded-md bg-warn px-3 py-2 text-xs font-semibold text-background"
-                      >
-                        Confirm Bonds lock
-                      </button>
-                    </div>
-                  </div>
                 )}
               </Panel>
             )}

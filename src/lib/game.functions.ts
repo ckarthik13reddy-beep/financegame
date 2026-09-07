@@ -4,6 +4,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 import {
   ASSET_KEYS,
   DEFAULT_CREDENTIALS,
+  DEFAULT_ALLOCATION,
   EMAIL_DOMAIN,
   MAX_MOVE_PER_ASSET,
   MIN_TRADE_LOT,
@@ -56,17 +57,22 @@ export const seedGame = createServerFn({ method: "POST" }).handler(async () => {
         id: userId,
         team_number: teamNumber,
         name: cred.label,
-        cash_balance: START_CAPITAL,
+        cash_balance: 0,
+        bonds_sell_used: false,
       });
-      await db
-        .from("allocations")
-        .upsert(ASSET_KEYS.map((k) => ({ team_id: userId!, asset_key: k, amount: 0 })));
+      await db.from("allocations").upsert(
+        ASSET_KEYS.map((k) => ({
+          team_id: userId!,
+          asset_key: k,
+          amount: DEFAULT_ALLOCATION[k],
+        })),
+      );
       await db.from("round_snapshots").upsert({
         team_id: userId,
         round: 0,
         total_value: START_CAPITAL,
-        cash_balance: START_CAPITAL,
-        allocation: {},
+        cash_balance: 0,
+        allocation: DEFAULT_ALLOCATION,
       });
     }
   }
@@ -141,7 +147,7 @@ export const submitAllocation = createServerFn({ method: "POST" })
     }
     if (sum > targetTotal + 1) throw new Error("You cannot spend more than your wallet balance");
 
-    let bondsChanged = false;
+    let bondsSell = false;
     for (const key of ASSET_KEYS) {
       const next = Number(data.amounts[key] ?? 0);
       const prev = Number(baseline[key] ?? 0);
@@ -150,12 +156,11 @@ export const submitAllocation = createServerFn({ method: "POST" })
         throw new Error(`${key} trades must use lots of at least $5M`);
       if (Math.abs(delta) > MAX_MOVE_PER_ASSET + 1)
         throw new Error(`Cannot move more than $10M in or out of ${key} in one round`);
-      if (key === "bonds" && Math.abs(delta) > 1) bondsChanged = true;
+      if (key === "bonds" && delta < -1) bondsSell = true;
     }
 
-    if (bondsChanged && round > 1) {
-      if (team.bonds_locked) throw new Error("Bonds are permanently locked for your team");
-    }
+    if (bondsSell && team.bonds_sell_used)
+      throw new Error("Your one Bonds sell has already been used");
 
     const rows = ASSET_KEYS.map((k) => ({
       team_id: teamId,
@@ -166,7 +171,10 @@ export const submitAllocation = createServerFn({ method: "POST" })
     await db.from("allocations").upsert(rows);
     await db
       .from("teams")
-      .update({ cash_balance: Math.round((targetTotal - sum) * 100) / 100 })
+      .update({
+        cash_balance: Math.round((targetTotal - sum) * 100) / 100,
+        ...(bondsSell ? { bonds_sell_used: true } : {}),
+      })
       .eq("id", teamId);
 
     const logs = ASSET_KEYS.map((k) => ({
@@ -177,16 +185,9 @@ export const submitAllocation = createServerFn({ method: "POST" })
     })).filter((l) => Math.abs(l.delta) > 0.5);
     if (logs.length) await db.from("change_log").insert(logs);
 
-    if (bondsChanged && round > 1) {
-      await db
-        .from("teams")
-        .update({ bonds_locked: true, bonds_change_round: round })
-        .eq("id", teamId);
-    }
-
     await db.from("submissions").insert({ team_id: teamId, round });
 
-    return { ok: true, bondsLocked: bondsChanged && round > 1 };
+    return { ok: true, bondsSellUsed: Boolean(team.bonds_sell_used || bondsSell) };
   });
 
 /** ---------------- Host controls ---------------- */
@@ -426,19 +427,28 @@ export const hostResetGame = createServerFn({ method: "POST" })
 
     const { data: teams } = await db.from("teams").select("id");
     for (const team of teams ?? []) {
-      await db
-        .from("allocations")
-        .upsert(ASSET_KEYS.map((k) => ({ team_id: team.id, asset_key: k, amount: 0 })));
+      await db.from("allocations").upsert(
+        ASSET_KEYS.map((k) => ({
+          team_id: team.id,
+          asset_key: k,
+          amount: DEFAULT_ALLOCATION[k],
+        })),
+      );
       await db.from("round_snapshots").upsert({
         team_id: team.id,
         round: 0,
         total_value: START_CAPITAL,
-        cash_balance: START_CAPITAL,
-        allocation: {},
+        cash_balance: 0,
+        allocation: DEFAULT_ALLOCATION,
       });
       await db
         .from("teams")
-        .update({ bonds_locked: false, bonds_change_round: null, cash_balance: START_CAPITAL })
+        .update({
+          bonds_locked: false,
+          bonds_change_round: null,
+          bonds_sell_used: false,
+          cash_balance: 0,
+        })
         .eq("id", team.id);
     }
     await db
