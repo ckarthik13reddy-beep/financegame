@@ -30,7 +30,6 @@ import {
   ASSET_KEYS,
   ASSET_LABELS,
   DEFAULT_CREDENTIALS,
-  MAX_MOVE_PER_ASSET,
   MIN_TRADE_LOT,
   START_CAPITAL,
   TOTAL_ROUNDS,
@@ -133,10 +132,10 @@ export function LoginScreen() {
               outperform the market line.
             </p>
             <div className="mt-12 grid max-w-md grid-cols-3 gap-3">
-              {["04", "06", "$10M"].map((value, index) => (
+              {["04", "06", "FREE"].map((value, index) => (
                 <div key={value} className="border-l-2 border-primary/60 pl-3">
                   <p className="num text-xl font-semibold">{value}</p>
-                  <p className="label-caps mt-1">{["Rounds", "Assets", "Move cap"][index]}</p>
+                  <p className="label-caps mt-1">{["Rounds", "Assets", "Movement"][index]}</p>
                 </div>
               ))}
             </div>
@@ -268,11 +267,6 @@ export function TeamDesk({ profile }: { profile: Profile }) {
     ((benchmarkSnapshot?.total_value ?? START_CAPITAL) - START_CAPITAL) / START_CAPITAL;
   const vsMarket = portfolioReturn - marketReturn;
   const bondsSellUsed = Boolean(team?.bonds_sell_used);
-  const capExceeded = ASSET_KEYS.some(
-    (key) =>
-      Math.abs(numberValue(draft[key]) - numberValue(base?.allocation[key])) >
-      MAX_MOVE_PER_ASSET + 1,
-  );
   const isSurprise = currentRound >= TOTAL_ROUNDS;
   const timerExpired = seconds !== null && seconds <= 0;
   const isOpen =
@@ -355,8 +349,8 @@ export function TeamDesk({ profile }: { profile: Profile }) {
                   </p>
                 )}
                 <p className="mb-4 text-xs text-muted-foreground">
-                  You may move up to $10M in or out of each market per round. Multiple markets can
-                  be adjusted in the same round.
+                  Move funds between markets in $5M lots. Any unallocated funds are deposited into
+                  your wallet.
                 </p>
                 <div className="flex flex-col items-center gap-7 md:flex-row">
                   <AllocationDonut amounts={draft} total={total} />
@@ -411,10 +405,7 @@ export function TeamDesk({ profile }: { profile: Profile }) {
                             <span>{fmtPct(total ? numberValue(draft[key]) / total : 0)}</span>
                             <span
                               className={
-                                Math.abs(
-                                  numberValue(draft[key]) - numberValue(base?.allocation[key]),
-                                ) >
-                                MAX_MOVE_PER_ASSET + 1
+                                numberValue(draft[key]) > numberValue(base?.total_value)
                                   ? "text-loss"
                                   : ""
                               }
@@ -441,22 +432,15 @@ export function TeamDesk({ profile }: { profile: Profile }) {
                   </div>
                   <button
                     onClick={submit}
-                    disabled={
-                      !isOpen ||
-                      busy ||
-                      capExceeded ||
-                      Math.abs(total - numberValue(base?.total_value ?? START_CAPITAL)) > 1
-                    }
+                    disabled={!isOpen || busy}
                     className="rounded-md bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {busy ? "Submitting..." : submitted ? "Submitted" : "Submit allocation"}
                   </button>
                 </div>
-                {(capExceeded || timerExpired) && (
+                {timerExpired && (
                   <p className="mt-4 border border-loss/40 bg-loss/10 p-3 text-sm text-loss">
-                    {timerExpired
-                      ? "Time is up. This desk is locked until the host advances the round."
-                      : "One or more assets exceeds the $10M movement cap."}
+                    Time is up. This desk is locked until the host advances the round.
                   </p>
                 )}
                 {message && (
@@ -541,7 +525,7 @@ export function TeamDesk({ profile }: { profile: Profile }) {
               <div className="space-y-3 text-sm text-muted-foreground">
                 <p className="flex gap-2">
                   <ShieldCheck className="size-4 shrink-0 text-primary" />
-                  You may move up to $10M in or out of each asset.
+                  Move funds between assets in $5M lots; unused funds go directly to your wallet.
                 </p>
                 <p className="flex gap-2">
                   <LockKeyhole className="size-4 shrink-0 text-warn" />
