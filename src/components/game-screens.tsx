@@ -338,7 +338,7 @@ export function TeamDesk({ profile }: { profile: Profile }) {
                 title="Allocation desk"
                 action={
                   <span className="num text-xs text-muted-foreground">
-                    Wallet {fmtMoney(numberValue(base?.total_value ?? START_CAPITAL) - total)}
+                    Wallet funds {fmtMoney(numberValue(base?.total_value ?? START_CAPITAL) - total)}
                   </span>
                 }
               >
@@ -350,7 +350,7 @@ export function TeamDesk({ profile }: { profile: Profile }) {
                 )}
                 <p className="mb-4 text-xs text-muted-foreground">
                   Move funds between markets in $5M lots. Any unallocated funds are deposited into
-                  your wallet.
+                  your wallet, including profits booked from the previous round.
                 </p>
                 <div className="flex flex-col items-center gap-7 md:flex-row">
                   <AllocationDonut amounts={draft} total={total} />
@@ -403,13 +403,7 @@ export function TeamDesk({ profile }: { profile: Profile }) {
                           </div>
                           <div className="mt-2 flex justify-between text-[10px] text-muted-foreground">
                             <span>{fmtPct(total ? numberValue(draft[key]) / total : 0)}</span>
-                            <span
-                              className={
-                                numberValue(draft[key]) > numberValue(base?.total_value)
-                                  ? "text-loss"
-                                  : ""
-                              }
-                            >
+                            <span>
                               Move{" "}
                               {fmtMoneyCompact(
                                 numberValue(draft[key]) - numberValue(base?.allocation[key]),
@@ -423,10 +417,8 @@ export function TeamDesk({ profile }: { profile: Profile }) {
                 </div>
                 <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
                   <div>
-                    <span className="label-caps">Cash remaining / overdrawn</span>
-                    <p
-                      className={`num mt-1 text-lg ${Math.abs(total - numberValue(base?.total_value ?? START_CAPITAL)) <= 1 ? "text-gain" : "text-loss"}`}
-                    >
+                    <span className="label-caps">Wallet funds available</span>
+                    <p className="num mt-1 text-lg text-gain">
                       {fmtMoney(numberValue(base?.total_value ?? START_CAPITAL) - total)}
                     </p>
                   </div>
@@ -446,6 +438,12 @@ export function TeamDesk({ profile }: { profile: Profile }) {
                 {message && (
                   <p className="mt-4 border border-primary/30 bg-primary/10 p-3 text-sm text-primary">
                     {message}
+                  </p>
+                )}
+                {submitted && (
+                  <p className="mt-4 border border-gain/30 bg-gain/10 p-3 text-sm text-gain">
+                    Profits from this round have been booked into your wallet for further asset
+                    buying.
                   </p>
                 )}
               </Panel>

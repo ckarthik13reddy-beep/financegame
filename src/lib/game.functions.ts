@@ -321,16 +321,19 @@ async function settleRound(round: number) {
     for (const row of live ?? []) current[row.asset_key] = Number(row.amount);
     const { next, total } = revalue(current);
     const cash = Number(team.cash_balance ?? 0);
+    const invested = ASSET_KEYS.reduce((sum, key) => sum + Number(current[key] ?? 0), 0);
+    const bookedCash = Math.round((cash + total - invested) * 100) / 100;
     await db
       .from("allocations")
-      .upsert(ASSET_KEYS.map((k) => ({ team_id: team.id, asset_key: k, amount: next[k]! })));
+      .upsert(ASSET_KEYS.map((k) => ({ team_id: team.id, asset_key: k, amount: current[k] ?? 0 })));
     await db.from("round_snapshots").upsert({
       team_id: team.id,
       round,
-      total_value: total + cash,
-      cash_balance: cash,
-      allocation: next,
+      total_value: invested + bookedCash,
+      cash_balance: bookedCash,
+      allocation: current,
     });
+    await db.from("teams").update({ cash_balance: bookedCash }).eq("id", team.id);
   }
 
   const { data: prevBench } = await db
