@@ -234,6 +234,7 @@ export function TeamDesk({ profile }: { profile: Profile }) {
   const news = useNews();
   const submissions = useSubmissions();
   const snapshots = useSnapshots();
+  const performance = usePerformance();
   const team = teams.data?.find((item) => item.team_number === profile.team_number);
   const live = useMemo(
     () => (team ? (allocations.data?.[team.id] ?? emptyAmounts()) : emptyAmounts()),
@@ -254,7 +255,11 @@ export function TeamDesk({ profile }: { profile: Profile }) {
     (item) => item.team_id === team?.id && item.round === currentRound,
   );
   const currentNews = news.data?.filter((item) => item.round <= currentRound).slice(0, 4) ?? [];
-  const priceMoves = moves.data?.[currentRound] ?? {};
+  const settledRounds = new Set(performance.settledRounds);
+  const currentRoundSettled = settledRounds.has(currentRound);
+  const latestSettledRound =
+    performance.settledRounds.length > 0 ? Math.max(...performance.settledRounds) : null;
+  const latestSettledMoves = latestSettledRound ? (moves.data?.[latestSettledRound] ?? {}) : {};
   const { data: benchmark } = useBenchmark();
   const benchmarkSnapshot = benchmark?.filter((item) => item.round <= currentRound).at(-1);
   const latestValue =
@@ -322,7 +327,7 @@ export function TeamDesk({ profile }: { profile: Profile }) {
           <Countdown seconds={seconds} />
         </div>
       </TopBar>
-      <Ticker moves={priceMoves} />
+      <Ticker />
       <div className="mx-auto max-w-[1600px] space-y-5 px-4 py-5 sm:px-6">
         <div className="grid gap-5 xl:grid-cols-[1.45fr_0.8fr]">
           <div className="space-y-5">
@@ -484,6 +489,45 @@ export function TeamDesk({ profile }: { profile: Profile }) {
                 ) : (
                   <p className="text-sm text-muted-foreground">
                     No intelligence has been posted for this round.
+                  </p>
+                )}
+              </div>
+              <div className="mt-4 border-t border-border pt-4">
+                <p className="label-caps">
+                  {currentRoundSettled
+                    ? `Settled move · Round ${currentRound}`
+                    : `Last settled move${latestSettledRound ? ` · Round ${latestSettledRound}` : ""}`}
+                </p>
+                {latestSettledRound ? (
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+                    {ASSET_KEYS.map((key) => {
+                      const value = currentRoundSettled
+                        ? numberValue(moves.data?.[currentRound]?.[key])
+                        : numberValue(latestSettledMoves[key]);
+                      return (
+                        <div
+                          key={key}
+                          className="flex items-center justify-between rounded border border-border/60 px-2 py-1"
+                        >
+                          <span className="text-muted-foreground">{ASSET_LABELS[key]}</span>
+                          <span
+                            className={
+                              value > 0
+                                ? "text-gain"
+                                : value < 0
+                                  ? "text-loss"
+                                  : "text-muted-foreground"
+                            }
+                          >
+                            {fmtPct(value)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Real market moves are hidden until the host settles a round.
                   </p>
                 )}
               </div>
@@ -670,6 +714,7 @@ export function HostControlRoom({ profile }: { profile: Profile }) {
           Round {currentRound} / {TOTAL_ROUNDS}
         </span>
       </TopBar>
+      <Ticker />
       <div className="mx-auto max-w-[1600px] px-4 py-5 sm:px-6">
         <nav className="mb-5 flex gap-2 border-b border-border">
           <button
@@ -688,7 +733,12 @@ export function HostControlRoom({ profile }: { profile: Profile }) {
           </button>
         </nav>
         {tab === "market" ? (
-          <MarketEditor round={currentRound} busy={busy} run={run} />
+          <MarketEditor
+            round={currentRound}
+            settledRounds={performance.settledRounds}
+            busy={busy}
+            run={run}
+          />
         ) : (
           <>
             <div className="grid gap-4 sm:grid-cols-3">
@@ -818,7 +868,7 @@ export function HostControlRoom({ profile }: { profile: Profile }) {
                   </button>
                 </div>
                 <div className="mt-5 border-t border-border pt-4">
-                  <p className="label-caps">Trigger price shock / Round {currentRound}</p>
+                  <p className="label-caps">Stage hidden shock / Round {currentRound}</p>
                   <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
                     {ASSET_KEYS.map((key) => (
                       <label key={key} className="text-xs text-muted-foreground">
@@ -839,17 +889,20 @@ export function HostControlRoom({ profile }: { profile: Profile }) {
                     ))}
                   </div>
                   <button
-                    disabled={busy || currentRound !== TOTAL_ROUNDS}
+                    disabled={busy || state.data?.status === "complete"}
                     onClick={() =>
                       run(
                         () => hostTriggerShock({ data: { moves: shockMoves } }),
-                        "Shock applied and round frozen",
+                        "Shock staged for settlement",
                       )
                     }
                     className="mt-3 rounded-md bg-loss px-4 py-2 text-sm font-semibold text-background disabled:opacity-40"
                   >
-                    Trigger shock & freeze
+                    Trigger shock
                   </button>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Shock values are hidden from desks until you click Settle.
+                  </p>
                 </div>
                 {message && (
                   <p className="mt-4 border border-primary/30 bg-primary/10 p-3 text-sm text-primary">
@@ -994,10 +1047,12 @@ function PerformanceChart({
 
 function MarketEditor({
   round,
+  settledRounds,
   busy,
   run,
 }: {
   round: number;
+  settledRounds: number[];
   busy: boolean;
   run: (action: () => Promise<unknown>, success: string) => Promise<void>;
 }) {
@@ -1026,6 +1081,7 @@ function MarketEditor({
     setPrices(nextPrices);
   }, [assets.data]);
   const weightTotal = Object.values(weights).reduce((sum, value) => sum + numberValue(value), 0);
+  const selectedRoundSettled = settledRounds.includes(selectedRound);
   const previewTotal =
     START_CAPITAL *
     ASSET_KEYS.reduce(
@@ -1086,10 +1142,21 @@ function MarketEditor({
         </div>
         <div className="mt-5 border-t border-border pt-4">
           <p className="label-caps">Hypothetical equal/weighted book preview</p>
-          <p className="num mt-2 text-2xl font-semibold">{fmtMoney(previewTotal)}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Projected value after Round {selectedRound} moves using the current benchmark mix.
-          </p>
+          {selectedRoundSettled ? (
+            <>
+              <p className="num mt-2 text-2xl font-semibold">{fmtMoney(previewTotal)}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Projected value after Round {selectedRound} moves using the current benchmark mix.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="num mt-2 text-2xl font-semibold text-muted-foreground">Hidden</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Current-round move impact is intentionally hidden until settlement.
+              </p>
+            </>
+          )}
         </div>
       </Panel>
       <Panel

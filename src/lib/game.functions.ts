@@ -295,9 +295,9 @@ export const hostSetBasePrice = createServerFn({ method: "POST" })
 
 async function settleRound(round: number) {
   const db = await admin();
+  let applied = false;
 
-  const { data: done } = await db.from("benchmark_snapshots").select("round").eq("round", round);
-  if (done && done.length > 0) return false;
+  const isUniqueViolation = (code: string | undefined) => code === "23505";
 
   const { data: moves } = await db.from("price_moves").select("asset_key, pct").eq("round", round);
   const pct: Record<string, number> = {};
@@ -316,6 +316,19 @@ async function settleRound(round: number) {
 
   const { data: teams } = await db.from("teams").select("id, cash_balance");
   for (const team of teams ?? []) {
+    const cash = Number(team.cash_balance ?? 0);
+    const { error: lockError } = await db.from("round_snapshots").insert({
+      team_id: team.id,
+      round,
+      total_value: 0,
+      cash_balance: cash,
+      allocation: {},
+    });
+    if (lockError) {
+      if (isUniqueViolation(lockError.code)) continue;
+      throw lockError;
+    }
+
     const { data: live } = await db
       .from("allocations")
       .select("asset_key, amount")
@@ -323,17 +336,19 @@ async function settleRound(round: number) {
     const current: Amounts = {};
     for (const row of live ?? []) current[row.asset_key] = Number(row.amount);
     const { next, total } = revalue(current);
-    const cash = Number(team.cash_balance ?? 0);
+    await db
+      .from("round_snapshots")
+      .update({
+        total_value: total + cash,
+        cash_balance: cash,
+        allocation: next,
+      })
+      .eq("team_id", team.id)
+      .eq("round", round);
     await db
       .from("allocations")
       .upsert(ASSET_KEYS.map((k) => ({ team_id: team.id, asset_key: k, amount: next[k]! })));
-    await db.from("round_snapshots").upsert({
-      team_id: team.id,
-      round,
-      total_value: total + cash,
-      cash_balance: cash,
-      allocation: next,
-    });
+    applied = true;
   }
 
   const { data: prevBench } = await db
@@ -342,10 +357,21 @@ async function settleRound(round: number) {
     .eq("round", round - 1)
     .maybeSingle();
   if (prevBench) {
-    const { next, total } = revalue(prevBench.allocation as Amounts);
-    await db.from("benchmark_snapshots").upsert({ round, total_value: total, allocation: next });
+    const { error: benchLockError } = await db
+      .from("benchmark_snapshots")
+      .insert({ round, total_value: 0, allocation: {} });
+    if (!benchLockError) {
+      const { next, total } = revalue(prevBench.allocation as Amounts);
+      await db
+        .from("benchmark_snapshots")
+        .update({ total_value: total, allocation: next })
+        .eq("round", round);
+      applied = true;
+    } else if (!isUniqueViolation(benchLockError.code)) {
+      throw benchLockError;
+    }
   }
-  return true;
+  return applied;
 }
 
 export const hostSettleRound = createServerFn({ method: "POST" })
@@ -370,7 +396,9 @@ export const hostAdvanceRound = createServerFn({ method: "POST" })
     if (!state) throw new Error("Game state missing");
     const round = state.current_round;
 
-    await settleRound(round);
+    if (state.status !== "frozen") {
+      await settleRound(round);
+    }
 
     if (round >= TOTAL_ROUNDS) {
       await db
@@ -406,11 +434,6 @@ export const hostTriggerShock = createServerFn({ method: "POST" })
       .map(([asset_key, pct]) => ({ round, asset_key, pct: Number(pct) || 0 }));
     if (rows.length) await db.from("price_moves").upsert(rows);
 
-    await settleRound(round);
-    await db
-      .from("game_state")
-      .update({ status: "frozen", timer_ends_at: null, updated_at: new Date().toISOString() })
-      .eq("id", 1);
     return { ok: true };
   });
 

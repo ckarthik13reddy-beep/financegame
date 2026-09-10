@@ -49,8 +49,15 @@ export function StatusPill({ status }: { status: string }) {
           ? "text-primary border-primary/40 bg-primary/10"
           : "text-muted-foreground border-border bg-secondary/60";
   return (
-    <span className={cn("num rounded-full border px-3 py-1 text-[11px] tracking-widest uppercase", tone)}>
-      {status === "open" && <span className="live-dot mr-2 inline-block size-1.5 rounded-full bg-gain" />}
+    <span
+      className={cn(
+        "num rounded-full border px-3 py-1 text-[11px] tracking-widest uppercase",
+        tone,
+      )}
+    >
+      {status === "open" && (
+        <span className="live-dot mr-2 inline-block size-1.5 rounded-full bg-gain" />
+      )}
       {ROUND_STATUS_LABEL[status] ?? status}
     </span>
   );
@@ -83,7 +90,8 @@ export function Delta({
   size?: "sm" | "md" | "lg";
 }) {
   const basis = value ?? pct ?? 0;
-  const tone = basis > 0.0001 ? "text-gain" : basis < -0.0001 ? "text-loss" : "text-muted-foreground";
+  const tone =
+    basis > 0.0001 ? "text-gain" : basis < -0.0001 ? "text-loss" : "text-muted-foreground";
   const sizes = { sm: "text-xs", md: "text-sm", lg: "text-xl" }[size];
   return (
     <span className={cn("num font-semibold", tone, sizes, className)}>
@@ -159,8 +167,31 @@ export function TopBar({
   );
 }
 
-export function Ticker({ moves }: { moves: Record<string, number> }) {
-  const items = ASSET_KEYS.map((k) => ({ key: k, label: ASSET_LABELS[k], pct: moves[k] ?? 0 }));
+export function Ticker() {
+  const [decoyMoves, setDecoyMoves] = useState<Record<string, number>>(() =>
+    Object.fromEntries(ASSET_KEYS.map((key) => [key, 0])),
+  );
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setDecoyMoves((current) => {
+        const next: Record<string, number> = {};
+        for (const key of ASSET_KEYS) {
+          const jitter = (Math.random() - 0.5) * 1.8;
+          const moved = Number(current[key] ?? 0) + jitter;
+          next[key] = Math.round(Math.max(-6, Math.min(6, moved)) * 10) / 10;
+        }
+        return next;
+      });
+    }, 2200);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const items = ASSET_KEYS.map((k) => ({
+    key: k,
+    label: ASSET_LABELS[k],
+    pct: decoyMoves[k] ?? 0,
+  }));
   const row = [...items, ...items];
   return (
     <div className="overflow-hidden border-b border-border/70 bg-panel/70">
