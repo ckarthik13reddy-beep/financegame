@@ -6,7 +6,6 @@ import {
   DEFAULT_CREDENTIALS,
   DEFAULT_ALLOCATION,
   EMAIL_DOMAIN,
-  MAX_MOVE_PER_ASSET,
   MIN_TRADE_LOT,
   START_CAPITAL,
   TOTAL_ROUNDS,
@@ -154,8 +153,6 @@ export const submitAllocation = createServerFn({ method: "POST" })
       const delta = next - prev;
       if (Math.abs(delta) > 0.5 && Math.abs(delta) < MIN_TRADE_LOT)
         throw new Error(`${key} trades must use lots of at least $5M`);
-      if (Math.abs(delta) > MAX_MOVE_PER_ASSET + 1)
-        throw new Error(`Cannot move more than $10M in or out of ${key} in one round`);
       if (key === "bonds" && delta < -1) bondsSell = true;
     }
 
